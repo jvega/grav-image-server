@@ -1,0 +1,24 @@
+{% block image_server %}
+    {% set imageName = image %}
+    {% block image_server_set_image %}
+        {% if image is iterable %}
+            {% set imageName = image|first.name %}
+        {% endif %}
+    {% endblock %}
+
+{% block image_server_output %}
+{# Not recommended to use the twig function without this template #}
+{{ bgPicture(
+    imageName,
+    alt|default(''),
+    title|default(null),
+    preset|default(null),
+    loading|default(null),
+    ratio|default(null),
+    breakpoints|default(null),
+    maxWidth|default(null),
+    class|default(null),
+    densitySet|default(null)
+)|raw }}
+{% endblock %}
+{% endblock %}

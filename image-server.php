@@ -63,6 +63,9 @@ class ImageServerPlugin extends Plugin
         $this->grav['twig']->twig()->addFunction(
             new Twig_SimpleFunction('picture', [$this, 'picture'])
         );
+        $this->grav['twig']->twig()->addFunction(
+            new Twig_SimpleFunction('bgPicture', [$this, 'bgPicture'])
+        );
     }
 
 
@@ -108,7 +111,12 @@ class ImageServerPlugin extends Plugin
         $val .= '<img src="' . self::getImage($file, 'guess', $this->config->get('system.images.default_image_quality', 82), $maxWidth, $maxCalHeight) . '"';
         foreach (['class', 'alt', 'title', 'width', 'height', 'loading'] as $attr) {
             if (isset(${$attr})) {
-                $val .= ' ' . $attr . '="' . htmlspecialchars(${$attr}, ENT_COMPAT, 'UTF-8') . '"';
+                $parsedValue = match ($attr) {
+                    'width' => $maxWidth,
+                    'height' => $maxCalHeight,
+                    default => htmlspecialchars(${$attr}, ENT_COMPAT, 'UTF-8'),
+                };
+                $val .= ' ' . $attr . '="' . $parsedValue . '"';
             }
         }
         return $val . ' /></picture>';
@@ -144,6 +152,85 @@ class ImageServerPlugin extends Plugin
         return $this->generatePictureMarkup($imageName, $alt, $ratio, $breakpoints, $maxWidth, $loading, $class, $title, $densitySet);
     }
 
+    public function bgPicture($imageName, string $alt = '', ?string $title = null, ?string $preset = null, ?string $loading = null, ?float $ratio = null, ?array $breakpoints = null, ?int $maxWidth = null, ?string $class = null, ?array $densitySet = null): string
+    {
+        $this->applyPreset($preset, $loading, $ratio, $breakpoints, $maxWidth, $class, $densitySet);
+        $this->applyDefault($loading, $breakpoints, $maxWidth, $class, $densitySet);
+        return $this->generateBgPictureMarkup($imageName, $alt, $ratio, $breakpoints, $maxWidth, $loading, $class, $title, $densitySet);
+    }
+
+    private function generateBgPictureMarkup($file, string $alt = '', ?float $ratio = null, ?array $breakpoints = null, ?int $maxWidth = null, ?string $loading = null, ?string $class = null, ?string $title = null, ?array $densitySet = null): string
+    {
+        if (!empty($breakpoints)) {
+            $sortColumn = array_column($breakpoints, 'breakpoint');
+            array_multisort($sortColumn, SORT_DESC, SORT_NUMERIC, $breakpoints);
+        }
+
+        $file = ltrim($file, '/');
+        try {
+            [$width, $height] = getimagesize($file);
+        } catch (Exception) {
+            if ($this->config->get('plugins.image-server.log', true)) {
+                $this->grav['log']->notice('Background Image missing: ' . $file . ' Page: ' . $this->grav['uri']->url());
+            }
+
+            if ($this->config->get('plugins.image-server.errorImage', false)) {
+                return '<style>.b-image { background-image: url(\'data:image/svg+xml,<svg width="100%" height="100%" viewBox="0 0 86.591003 53.525999" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="100%" height="100%" fill="white" stroke="red" /><text xml:space="preserve" style="line-height:125%;text-align:center;fill:black" x="86.31" y="17.66" font-weight="300" font-size="10.58" text-anchor="middle"><tspan style="text-align:center" x="43.12" y="17.66">Error</tspan><tspan x="43.12" y="30.89">missing image</tspan><tspan x="43.12" y="43.89" font-size="3.58">' . htmlspecialchars($file) . '</tspan></text></svg>\') }</style>';
+            }
+
+            return '';
+        }
+
+        $ratio = $ratio ?? (float)($height / $width);
+        $maxWidth = min($maxWidth, $width);
+        $maxCalHeight = round($maxWidth * $ratio);
+        $val = '<div class="b-image" title="Terra Bolivia"></div>';
+        $style = '<style>';
+        $style .= '.b-image {';
+        $style .= 'background-image: url("' . self::getImage($file, 'guess', $this->config->get('system.images.default_image_quality', 82), $maxWidth, $maxCalHeight) . '");';
+        $style .= '}';
+        $styleBreakpoints = [
+            '@media only screen ' . ($breakpoints ? 'and (min-width: ' . current($breakpoints)['breakpoint'] + 1 . 'px)' : '') . ' {' .
+                '.b-image {' .
+                    'background-image: image-set(' .
+                        $this->generateImageSetMarkup($file, $width, $maxWidth, $maxCalHeight, $densitySet) .
+                    ');'.
+                '}'.
+            '}',
+        ];
+        foreach ($breakpoints as $imageWidth) {
+            if ($imageWidth['imageWidth'] <= $width) {
+                $calHeight = round($imageWidth['imageWidth'] * $ratio);
+                $styleBreakpoints[] = '@media only screen ' . (next($breakpoints) ? 'and (min-width: ' . current($breakpoints)['breakpoint'] + 1 . 'px)' : '') . ' {' .
+                    '.b-image {' .
+                        'background-image: image-set(' .
+                            $this->generateImageSetMarkup($file, $width, $imageWidth['imageWidth'], $calHeight, $densitySet) . 
+                        ');' .
+                    '}'.
+                '}';
+                $maxWidth = max($imageWidth['imageWidth'], $maxWidth);
+                $maxCalHeight = max($maxCalHeight, $calHeight);
+            }
+        }
+        // reverse order because media queries are applied in ascendent order
+        krsort($styleBreakpoints);
+        $style .= join("\n", $styleBreakpoints) . '</style>';
+
+        return $style . $val;
+    }
+
+    private function generateImageSetMarkup(string $file, int $width, int $maxWidth, int $maxCalHeight, array $densitySets): string
+    {
+        $val = '';
+        foreach ($densitySets as $densitySet) {
+            if ($maxWidth * $densitySet['density'] <= $width) {
+                $val .= (!empty($val) ? ', ' : '') .
+                    '"' . self::getImage($file, 'webp', $densitySet['quality'], $maxWidth * $densitySet['density'], $maxCalHeight * $densitySet['density']) . '" type("image/webp") ' . $densitySet['density'] . 'x';
+            }
+        }
+        return $val;
+    }
+
     /**
      * Unfortunately the 'derivatives' function in markdown does not set the size attribute to the right value. This is done here after all the page is fully rendered to html.
      */
@@ -166,7 +253,11 @@ class ImageServerPlugin extends Plugin
             preg_match_all('/(?<name>title|alt|class|width|height)=[\'"](?<value>.*)[\'"]/Um', $match['start'] . $match['end'], $attrs, PREG_SET_ORDER);
 
             foreach ($attrs as $attr) {
-                ${$attr['name']} = htmlspecialchars_decode($attr['value'], ENT_COMPAT);
+                $parsedValue = match ($attr['name']) {
+                    'width', 'height' => str_contains($attr['value'], '%') ? $attr['value'] : intval($attr['value']),
+                    default => htmlspecialchars_decode($attr['value'], ENT_COMPAT),
+                };
+                ${$attr['name']} = $parsedValue;
             }
 
             parse_str($match['query_string'], $queryString);
@@ -180,7 +271,9 @@ class ImageServerPlugin extends Plugin
             }
 
             $this->applyDefault($loading, $breakpoints, $maxWidth, $class, $densitySet);
-
+            if (isset($width)) {
+                $maxWidth = str_contains($width, '%') ? $maxWidth : min($maxWidth, $width);
+            }
             if ($match['image_format'] === 'svg') {
                 $val = '<picture><img src="' . $match['image'] . '"';
                 foreach (['class', 'alt', 'title', 'width', 'height', 'loading'] as $attr) {
@@ -206,7 +299,7 @@ class ImageServerPlugin extends Plugin
             ->setCacheDir($cacheDir)
             ->setActualCacheDir($cacheDir);
         $image->zoomCrop($width, $height);
-        return str_replace($cacheDir, 'images', $image->cacheFile($format, $quality));
+        return str_replace($cacheDir, '/images', $image->cacheFile($format, $quality));
     }
 
     private function applyPreset($preset, &$loading, &$ratio, &$breakpoints, &$maxWidth, &$class, &$densitySet): void
