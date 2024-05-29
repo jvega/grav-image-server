@@ -69,7 +69,7 @@ class ImageServerPlugin extends Plugin
     }
 
 
-    private function generatePictureMarkup($file, string $alt = '', ?float $ratio = null, ?array $breakpoints = null, ?int $maxWidth = null, ?string $loading = null, ?string $class = null, ?string $title = null, ?array $densitySet = null): string
+    private function generatePictureMarkup($file, string $alt = '', ?float $ratio = null, ?array $breakpoints = null, ?int $maxWidth = null, ?string $loading = null, ?string $class = null, ?string $title = null, ?array $densitySet = null, ?string $style = null): string
     {
         if (!empty($breakpoints)) {
             $sortColumn = array_column($breakpoints, 'breakpoint');
@@ -109,7 +109,7 @@ class ImageServerPlugin extends Plugin
         }
 
         $val .= '<img src="' . self::getImage($file, 'guess', $this->config->get('system.images.default_image_quality', 82), $maxWidth, $maxCalHeight) . '"';
-        foreach (['class', 'alt', 'title', 'width', 'height', 'loading'] as $attr) {
+        foreach (['class', 'alt', 'title', 'width', 'height', 'loading', 'style'] as $attr) {
             if (isset(${$attr})) {
                 $parsedValue = match ($attr) {
                     'width' => $maxWidth,
@@ -152,14 +152,14 @@ class ImageServerPlugin extends Plugin
         return $this->generatePictureMarkup($imageName, $alt, $ratio, $breakpoints, $maxWidth, $loading, $class, $title, $densitySet);
     }
 
-    public function bgPicture($imageName, string $alt = '', ?string $title = null, ?string $preset = null, ?string $loading = null, ?float $ratio = null, ?array $breakpoints = null, ?int $maxWidth = null, ?string $class = null, ?array $densitySet = null): string
+    public function bgPicture($imageName, string $alt = '', ?string $title = null, ?string $preset = null, ?string $loading = null, ?float $ratio = null, ?array $breakpoints = null, ?int $maxWidth = null, ?string $class = null, ?array $densitySet = null, ?bool $noHTMLElem = false): string
     {
         $this->applyPreset($preset, $loading, $ratio, $breakpoints, $maxWidth, $class, $densitySet);
         $this->applyDefault($loading, $breakpoints, $maxWidth, $class, $densitySet);
-        return $this->generateBgPictureMarkup($imageName, $alt, $ratio, $breakpoints, $maxWidth, $loading, $class, $title, $densitySet);
+        return $this->generateBgPictureMarkup($imageName, $alt, $ratio, $breakpoints, $maxWidth, $loading, $class, $title, $densitySet, $noHTMLElem);
     }
 
-    private function generateBgPictureMarkup($file, string $alt = '', ?float $ratio = null, ?array $breakpoints = null, ?int $maxWidth = null, ?string $loading = null, ?string $class = null, ?string $title = null, ?array $densitySet = null): string
+    private function generateBgPictureMarkup($file, string $alt = '', ?float $ratio = null, ?array $breakpoints = null, ?int $maxWidth = null, ?string $loading = null, ?string $class = null, ?string $title = null, ?array $densitySet = null, ?bool $noHTMLElem = false): string
     {
         if (!empty($breakpoints)) {
             $sortColumn = array_column($breakpoints, 'breakpoint');
@@ -168,6 +168,9 @@ class ImageServerPlugin extends Plugin
 
         $file = ltrim($file, '/');
         try {
+            if (str_contains($file, '?')){
+                [$file] = explode('?', $file);
+            }
             [$width, $height] = getimagesize($file);
         } catch (Exception) {
             if ($this->config->get('plugins.image-server.log', true)) {
@@ -184,7 +187,7 @@ class ImageServerPlugin extends Plugin
         $ratio = $ratio ?? (float)($height / $width);
         $maxWidth = min($maxWidth, $width);
         $maxCalHeight = round($maxWidth * $ratio);
-        $val = '<div class="b-image" title="Terra Bolivia"></div>';
+        $val = $noHTMLElem ? '' : '<div class="b-image" title="Terra Bolivia"></div>';
         $style = '<style>';
         $style .= '.b-image {';
         $style .= 'background-image: url("' . self::getImage($file, 'guess', $this->config->get('system.images.default_image_quality', 82), $maxWidth, $maxCalHeight) . '");';
@@ -250,8 +253,7 @@ class ImageServerPlugin extends Plugin
             $alt = '';
             $title = null;
 
-            preg_match_all('/(?<name>title|alt|class|width|height)=[\'"](?<value>.*)[\'"]/Um', $match['start'] . $match['end'], $attrs, PREG_SET_ORDER);
-
+            preg_match_all('/(?<name>title|alt|class|width|height|style)=[\'"](?<value>.*)[\'"]/Um', $match['start'] . $match['end'], $attrs, PREG_SET_ORDER);
             foreach ($attrs as $attr) {
                 $parsedValue = match ($attr['name']) {
                     'width', 'height' => str_contains($attr['value'], '%') ? $attr['value'] : intval($attr['value']),
@@ -276,7 +278,7 @@ class ImageServerPlugin extends Plugin
             }
             if ($match['image_format'] === 'svg') {
                 $val = '<picture><img src="' . $match['image'] . '"';
-                foreach (['class', 'alt', 'title', 'width', 'height', 'loading'] as $attr) {
+                foreach (['class', 'alt', 'title', 'width', 'height', 'loading', 'style'] as $attr) {
                     if (isset(${$attr})) {
                         $val .= ' ' . $attr . '="' . htmlspecialchars(${$attr}, ENT_COMPAT, 'UTF-8') . '"';
                     }
@@ -284,7 +286,7 @@ class ImageServerPlugin extends Plugin
                 return $val . ' /></picture>';
             }
 
-            return $this->generatePictureMarkup($match['image'], $alt, $ratio ?? null, $breakpoints ?? null, $maxWidth ?? null, $loading ?? null, $class ?? null, $title, $densitySet ?? null);
+            return $this->generatePictureMarkup($match['image'], $alt, $ratio ?? null, $breakpoints ?? null, $maxWidth ?? null, $loading ?? null, $class ?? null, $title, $densitySet ?? null, $style ?? null);
         }, $raw);
 
         $this->grav->output = $raw;
