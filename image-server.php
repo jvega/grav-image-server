@@ -187,7 +187,7 @@ class ImageServerPlugin extends Plugin
         $ratio = $ratio ?? (float)($height / $width);
         $maxWidth = min($maxWidth, $width);
         $maxCalHeight = round($maxWidth * $ratio);
-        $val = $noHTMLElem ? '' : '<div class="b-image" title="Terra Bolivia"></div>';
+        $val = $noHTMLElem ? '' : "<div class='b-image' title='$title'></div>";
         $style = '<style>';
         $style .= '.b-image {';
         $style .= 'background-image: url("' . self::getImage($file, 'guess', $this->config->get('system.images.default_image_quality', 82), $maxWidth, $maxCalHeight) . '");';
